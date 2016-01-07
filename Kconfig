@@ -1,0 +1,29 @@
+menuconfig LEDS_RGBW
+        bool "LED RGBW support"
+        select LEDS_RGBW_CLASS
+        help
+          This option enables RGBW support and can
+          be configured via sysfs. If unsure, say N.
+
+config LEDS_RGBW_CLASS
+        bool "RGB+W LED SYSFS Class"
+        depends on ARM
+        depends on OF
+        default n
+        help
+          This sets up the class to accept platform devices of this 
+          class. The generic driver requires this class to be in the
+          kernel before it can be added.
+
+config LEDS_RGBW_GENERIC
+        bool "Generic RGB+W LED Driver"
+        depends on LEDS_RGBW_CLASS
+        depends on GPIOLIB
+        depends on PWM_IMX
+        default n
+        help
+          This driver adds support for configuring and driving a generic 
+          RGB[W] LED Light Strip peripheral. This driver requires a 
+          minimum  of three PWM OR GPIO channels with an optional fourth 
+          driving the white channel. This driver is specific to the i.MX6 
+          family of GPIO/PWM drivers. 
