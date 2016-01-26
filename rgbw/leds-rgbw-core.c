@@ -693,7 +693,35 @@ static void rgbw_device_release(struct device *dev)
     kfree(rgbw_dev);
 }
 
-static struct device_attribute rgbw_device_attributes[] = {
+static DEVICE_ATTR(RGBW_values, 0664, rgbw_show_values, rgbw_store_values);
+static DEVICE_ATTR(red_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(green_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(blue_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(white_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(per_color_max_value, 0444, rgbw_show_max_brightness, NULL);
+static DEVICE_ATTR(RGBW_types, 0444, rgbw_show_types, NULL);
+static DEVICE_ATTR(pulse, 0222, NULL, rgbw_set_pulse);
+static DEVICE_ATTR(blink, 0222, NULL, rgbw_set_blink);
+static DEVICE_ATTR(heartbeat, 0222, NULL, rgbw_set_heartbeat);
+static DEVICE_ATTR(rainbow, 0222, NULL, rgbw_set_rainbow);
+
+static struct attribute *rgbw_attrs[] = {
+    &dev_attr_RGBW_values.attr,
+    &dev_attr_red_value.attr,
+    &dev_attr_green_value.attr,
+    &dev_attr_blue_value.attr,
+    &dev_attr_white_value.attr,
+    &dev_attr_per_color_max_value.attr,
+    &dev_attr_RGBW_types.attr,
+    &dev_attr_pulse.attr,
+    &dev_attr_blink.attr,
+    &dev_attr_heartbeat.attr,
+    &dev_attr_rainbow.attr,
+    NULL,
+};
+ATTRIBUTE_GROUPS(rgbw);
+/*
+static struct device_attribute rgbw_attrs[] = {
     __ATTR(RGBW_values, 0664, rgbw_show_values, rgbw_store_values),
     __ATTR(red_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
     __ATTR(green_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
@@ -707,6 +735,7 @@ static struct device_attribute rgbw_device_attributes[] = {
     __ATTR(rainbow, 0222, NULL, rgbw_set_rainbow),
     __ATTR_NULL,
 };
+*/
 
 /**
  * rgbw_device_register - create and register a new object of
@@ -831,7 +860,7 @@ static int __init rgbw_class_init(void)
         return PTR_ERR(rgbw_class);
     }
 
-    rgbw_class->dev_attrs = rgbw_device_attributes;
+    rgbw_class->dev_groups = rgbw_groups;
     rgbw_class->suspend = rgbw_suspend;
     rgbw_class->resume = rgbw_resume;
        
