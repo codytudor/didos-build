@@ -720,22 +720,6 @@ static struct attribute *rgbw_attrs[] = {
     NULL,
 };
 ATTRIBUTE_GROUPS(rgbw);
-/*
-static struct device_attribute rgbw_attrs[] = {
-    __ATTR(RGBW_values, 0664, rgbw_show_values, rgbw_store_values),
-    __ATTR(red_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
-    __ATTR(green_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
-    __ATTR(blue_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
-    __ATTR(white_value, 0664, rgbw_show_single_color, rgbw_store_single_color),
-    __ATTR(per_color_max_value, 0444, rgbw_show_max_brightness, NULL),
-    __ATTR(RGBW_types, 0444, rgbw_show_types, NULL),
-    __ATTR(pulse, 0222, NULL, rgbw_set_pulse),
-    __ATTR(blink, 0222, NULL, rgbw_set_blink),
-    __ATTR(heartbeat, 0222, NULL, rgbw_set_heartbeat),
-    __ATTR(rainbow, 0222, NULL, rgbw_set_rainbow),
-    __ATTR_NULL,
-};
-*/
 
 /**
  * rgbw_device_register - create and register a new object of

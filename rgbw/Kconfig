@@ -1,9 +1,4 @@
-menuconfig LEDS_RGBW
-        bool "LED RGBW support"
-        select LEDS_RGBW_CLASS
-        help
-          This option enables RGBW support and can
-          be configured via sysfs. If unsure, say N.
+menu "LED RGBW support"
 
 config LEDS_RGBW_CLASS
         bool "RGB+W LED SYSFS Class"
@@ -27,3 +22,5 @@ config LEDS_RGBW_GENERIC
           minimum  of three PWM OR GPIO channels with an optional fourth 
           driving the white channel. This driver is specific to the i.MX6 
           family of GPIO/PWM drivers. 
+
+endmenu
