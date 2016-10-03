@@ -40,15 +40,6 @@ static const char *const rgbw_types[] = {
     [RGBW_GPIO] = "soft_pwm",
 };
 
-char *bin2hex(char *dst, const void *src, size_t count)
-{
-          const unsigned char *_src = src;
-  
-          while (count--)
-                  dst = hex_byte_pack(dst, *_src++);
-          return dst;
-}
-
 static void rgbw_generate_event(struct rgbw_device *rgbw_dev)
 {
     char *envp[2];
@@ -699,17 +690,17 @@ static void rgbw_device_release(struct device *dev)
     kfree(rgbw_dev);
 }
 
-static DEVICE_ATTR(RGBW_values, 0664, rgbw_show_values, rgbw_store_values);
-static DEVICE_ATTR(red_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
-static DEVICE_ATTR(green_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
-static DEVICE_ATTR(blue_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
-static DEVICE_ATTR(white_value, 0664, rgbw_show_single_color, rgbw_store_single_color);
-static DEVICE_ATTR(per_color_max_value, 0444, rgbw_show_max_brightness, NULL);
-static DEVICE_ATTR(RGBW_types, 0444, rgbw_show_types, NULL);
-static DEVICE_ATTR(pulse, 0222, NULL, rgbw_set_pulse);
-static DEVICE_ATTR(blink, 0222, NULL, rgbw_set_blink);
-static DEVICE_ATTR(heartbeat, 0222, NULL, rgbw_set_heartbeat);
-static DEVICE_ATTR(rainbow, 0222, NULL, rgbw_set_rainbow);
+static DEVICE_ATTR(RGBW_values, 00644, rgbw_show_values, rgbw_store_values);
+static DEVICE_ATTR(red_value, 00644, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(green_value, 00644, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(blue_value, 00644, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(white_value, 00644, rgbw_show_single_color, rgbw_store_single_color);
+static DEVICE_ATTR(per_color_max_value, 00444, rgbw_show_max_brightness, NULL);
+static DEVICE_ATTR(RGBW_types, 00444, rgbw_show_types, NULL);
+static DEVICE_ATTR(pulse, 00200, NULL, rgbw_set_pulse);
+static DEVICE_ATTR(blink, 00200, NULL, rgbw_set_blink);
+static DEVICE_ATTR(heartbeat, 00200, NULL, rgbw_set_heartbeat);
+static DEVICE_ATTR(rainbow, 00200, NULL, rgbw_set_rainbow);
 
 static struct attribute *rgbw_attrs[] = {
     &dev_attr_RGBW_values.attr,
