@@ -34,6 +34,14 @@
 #include "rgbw.h"
 #include <linux/string.h>
 #include <linux/delay.h>
+#include <linux/kernel.h>
+#include <linux/module.h>     
+#include <linux/init.h>
+#include <linux/fb.h>
+#include <linux/err.h>
+#include <linux/ctype.h>
+#include <linux/mutex.h>
+#include <linux/gpio.h>
 
 static const char *const rgbw_types[] = {
     [RGBW_PWM] = "hard_pwm",
@@ -122,7 +130,7 @@ static ssize_t rgbw_set_rainbow(struct device *dev,
     mutex_unlock(&rgbw_dev->ops_lock);
     
     if (rgbw_dev->acts.state & RGBW_RB_ON)
-        hrtimer_start(&rgbw_dev->rgbw_hrtimer[HRTIMER_RAINBOW], ktime_set(0,1000), HRTIMER_MODE_REL);
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_RAINBOW], jiffies + msecs_to_jiffies(1));
 
     rgbw_generate_event(rgbw_dev);
        
@@ -199,7 +207,7 @@ static ssize_t rgbw_set_heartbeat(struct device *dev,
     mutex_unlock(&rgbw_dev->ops_lock);
     
     if (rgbw_dev->acts.state & RGBW_HB_ON)
-        hrtimer_start(&rgbw_dev->rgbw_hrtimer[HRTIMER_HEARTBEAT], ktime_set(0,1000), HRTIMER_MODE_REL);
+		mod_timer(&rgbw_dev->rgbw_timer[TIMER_HEARTBEAT], jiffies + msecs_to_jiffies(1));
 
     rgbw_generate_event(rgbw_dev);
        
@@ -276,7 +284,7 @@ static ssize_t rgbw_set_blink(struct device *dev,
     mutex_unlock(&rgbw_dev->ops_lock);
     
     if (rgbw_dev->acts.state & RGBW_BLINK_ON)
-        hrtimer_start(&rgbw_dev->rgbw_hrtimer[HRTIMER_BLINK], ktime_set(0,1000), HRTIMER_MODE_REL);
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_BLINK], jiffies + msecs_to_jiffies(1));
         
     rgbw_generate_event(rgbw_dev);
        
@@ -367,7 +375,7 @@ static ssize_t rgbw_set_pulse(struct device *dev,
     mutex_unlock(&rgbw_dev->ops_lock);
     
     if (rgbw_dev->acts.state & RGBW_PULSE_ON)
-        hrtimer_start(&rgbw_dev->rgbw_hrtimer[HRTIMER_PULSE], ktime_set(0,1000), HRTIMER_MODE_REL);
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_PULSE], jiffies + msecs_to_jiffies(1));
         
     rgbw_generate_event(rgbw_dev);
        

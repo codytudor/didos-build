@@ -20,25 +20,8 @@
 #define __RGBW_H_INCLUDED
 
 #include <linux/kernel.h>
-#include <linux/module.h>     
-#include <linux/init.h>
-#include <linux/platform_device.h>
-#include <linux/fb.h>
-#include <linux/err.h>
-#include <linux/pwm.h>
-#include <linux/slab.h>
-#include <linux/ctype.h>
-#include <linux/device.h>
-#include <linux/mutex.h>
-#include <linux/notifier.h>
-#include <linux/gpio.h>
-#include <linux/hrtimer.h>
-#include <linux/ktime.h>
-#include <linux/kdev_t.h>
-#include <linux/of_gpio.h>
-
-
-
+#include <linux/module.h> 
+#include <linux/device.h>    
 
 /* Notes on locking:
  *
@@ -56,11 +39,8 @@
  */
 
 /* Types */
-
-#define PULSE_VALUE_PER_NS 50000000
-#define PULSE_VALUE_PER_MS (PULSE_VALUE_PER_NS / 1000000)
-#define BLINK_STATE_PER_NS 750000000
-#define BLINK_STATE_PER_MS (BLINK_STATE_PER_NS / 1000000)
+#define PULSE_VALUE_PER_MS 50
+#define BLINK_STATE_PER_MS 750
 
 enum rgbw_colors {
     COLOR_RED = 0,
@@ -78,12 +58,12 @@ enum rgbw_type {
     RGBW_TYPE_INVALID,
 };
 
-enum hrtimer_type {
-    HRTIMER_PULSE = 0,
-    HRTIMER_BLINK,
-    HRTIMER_HEARTBEAT,
-    HRTIMER_RAINBOW,
-    MAX_HRTIMER,
+enum timer_type {
+    TIMER_PULSE = 0,
+    TIMER_BLINK,
+    TIMER_HEARTBEAT,
+    TIMER_RAINBOW,
+    MAX_RGBWTIMER,
 };
 
 struct rgbw_device;
@@ -135,8 +115,8 @@ struct rgbw_properties {
 struct rgbw_device {
     /* RGBW properties */
     struct rgbw_properties props[MAX_COLORS];
-    /* hrtimer struct for our pwm actions */
-    struct hrtimer rgbw_hrtimer[MAX_HRTIMER];
+    /* timer struct for our pwm actions */
+    struct timer_list rgbw_timer[MAX_RGBWTIMER];
     
     struct rgbw_actions acts;
     

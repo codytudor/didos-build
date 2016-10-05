@@ -30,6 +30,19 @@
  */
 
 #include "rgbw.h"
+#include <linux/kernel.h>
+#include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/notifier.h>
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+#include <linux/timer.h>
+#include <linux/hrtimer.h>
+#include <linux/sched.h>
+#include <linux/pwm.h>
+#include <linux/reboot.h>
+
+static bool reboot_stop = false;
 
 /* soft_pwm_device
  *
@@ -108,6 +121,32 @@ const unsigned int pulse_val_table[] = {
 
 struct rgbw_device *g_rgbw_dev;
 
+static int rgbw_reboot_notifier(struct notifier_block *nb,
+                                     unsigned long code, void *unused)
+{
+	int cntr;
+	reboot_stop = true;
+	for (cntr = TIMER_PULSE; cntr < MAX_RGBWTIMER; cntr++) {  
+		del_timer_sync(&g_rgbw_dev->rgbw_timer[cntr]);    
+    }
+    return NOTIFY_DONE;
+}
+ 
+static int rgbw_panic_notifier(struct notifier_block *nb,
+                                    unsigned long code, void *unused)
+{	
+	reboot_stop = true;
+    return NOTIFY_DONE;
+}
+ 
+static struct notifier_block rgbw_reboot_nb = {
+        .notifier_call = rgbw_reboot_notifier,
+};
+
+static struct notifier_block rgbw_panic_nb = {
+        .notifier_call = rgbw_panic_notifier,
+};
+
 static int pulse_color_update(struct rgbw_device *rgbw_dev, const int pcolor)
 {
     struct pwm_rgbw_data *pb = rgbw_get_data(rgbw_dev);
@@ -126,8 +165,7 @@ static int pulse_color_update(struct rgbw_device *rgbw_dev, const int pcolor)
     
     if (pb->types[pcolor] == RGBW_PWM) {
         if (brightness == 0) {
-            pwm_config(pb->pwm[pcolor], 0, pb->period);
-            pwm_disable(pb->pwm[pcolor]);
+	    pwm_disable(pb->pwm[pcolor]);
         } else {
             duty_cycle = (pb->levels) ? pb->levels[brightness] : brightness;
 
@@ -139,7 +177,7 @@ static int pulse_color_update(struct rgbw_device *rgbw_dev, const int pcolor)
     }
     
     if ((pb->types[pcolor] == RGBW_GPIO) && (!hrtimer_active(&pb->soft_pwm[pcolor].pwm_timer)))
-            hrtimer_start(&pb->soft_pwm[pcolor].pwm_timer, ktime_set(0,1000), HRTIMER_MODE_REL);
+        hrtimer_start(&pb->soft_pwm[pcolor].pwm_timer, ktime_set(0,1000), HRTIMER_MODE_REL);
 
     if (pb->notify_after)
         pb->notify_after(pb->dev, brightness);
@@ -169,8 +207,7 @@ static int rgbw_color_update(struct rgbw_device *rgbw_dev)
     for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
         if (pb->types[cntr] == RGBW_PWM) {
             if (brightness[cntr] == 0) {
-                pwm_config(pb->pwm[cntr], 0, pb->period);
-                pwm_disable(pb->pwm[cntr]);
+				pwm_disable(pb->pwm[cntr]);
             } else {
                 duty_cycle = (pb->levels) ? pb->levels[brightness[cntr]] : brightness[cntr];
 
@@ -202,63 +239,65 @@ static const struct rgbw_ops pwm_color_ops = {
  * to starting so that we can restore it once the rainbow function is
  * stopped. 
  */
- 
-static enum hrtimer_restart rgbw_rb_hrtimer_callback(struct hrtimer *timer)
+static void rgbw_rb_timer_callback(unsigned long data)
 {
-    int bstate; 
+	struct rgbw_device *rgbw_dev = (struct rgbw_device *) data; 
+    int bstate = rgbw_dev->acts.state;
+    int cntr;
     
-    bstate = g_rgbw_dev->acts.state;
+    if (unlikely(reboot_stop)) {
+		for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
+            rgbw_dev->props[cntr].brightness = 0;
+        } 
+		rgbw_color_update(rgbw_dev);
+		return;
+	}
     
     if (bstate & RGBW_RB_ON) { 
-        bstate = g_rgbw_dev->acts.bstate;                      
+        bstate = rgbw_dev->acts.bstate;                      
         switch (bstate) {
             case 0: /*  Red 255, Green increasing */
-                g_rgbw_dev->props[COLOR_GREEN].brightness++;
-                if (g_rgbw_dev->props[COLOR_GREEN].brightness > (g_rgbw_dev->props[COLOR_GREEN].max_brightness - 1))
-                    g_rgbw_dev->acts.bstate = 1;
+                rgbw_dev->props[COLOR_GREEN].brightness++;
+                if (rgbw_dev->props[COLOR_GREEN].brightness > (rgbw_dev->props[COLOR_GREEN].max_brightness - 1))
+                    rgbw_dev->acts.bstate = 1;
                 break;
             case 1: /*  Green 255, Red decreasing */
-                g_rgbw_dev->props[COLOR_RED].brightness--;
-                if (g_rgbw_dev->props[COLOR_RED].brightness < 1)
-                    g_rgbw_dev->acts.bstate = 2;
+                rgbw_dev->props[COLOR_RED].brightness--;
+                if (rgbw_dev->props[COLOR_RED].brightness < 1)
+                    rgbw_dev->acts.bstate = 2;
                 break;
             case 2: /*  Green 255, Blue increasing */
-                g_rgbw_dev->props[COLOR_BLUE].brightness++;
-                if (g_rgbw_dev->props[COLOR_BLUE].brightness > (g_rgbw_dev->props[COLOR_BLUE].max_brightness - 1))
-                    g_rgbw_dev->acts.bstate = 3;
+                rgbw_dev->props[COLOR_BLUE].brightness++;
+                if (rgbw_dev->props[COLOR_BLUE].brightness > (rgbw_dev->props[COLOR_BLUE].max_brightness - 1))
+                    rgbw_dev->acts.bstate = 3;
                 break;
             case 3: /*  Blue 255, Green decreasing */
-                g_rgbw_dev->props[COLOR_GREEN].brightness--;
-                if (g_rgbw_dev->props[COLOR_GREEN].brightness < 1)
-                    g_rgbw_dev->acts.bstate = 4;
+                rgbw_dev->props[COLOR_GREEN].brightness--;
+                if (rgbw_dev->props[COLOR_GREEN].brightness < 1)
+                    rgbw_dev->acts.bstate = 4;
                 break;
             case 4: /*  Blue 255, Red increasing */
-                g_rgbw_dev->props[COLOR_RED].brightness++;
-                if (g_rgbw_dev->props[COLOR_RED].brightness > (g_rgbw_dev->props[COLOR_RED].max_brightness - 1))
-                    g_rgbw_dev->acts.bstate = 5;
+                rgbw_dev->props[COLOR_RED].brightness++;
+                if (rgbw_dev->props[COLOR_RED].brightness > (rgbw_dev->props[COLOR_RED].max_brightness - 1))
+                    rgbw_dev->acts.bstate = 5;
                 break;
             case 5: /*  Red 255, Blue decreasing */
-                g_rgbw_dev->props[COLOR_BLUE].brightness--;
-                if (g_rgbw_dev->props[COLOR_BLUE].brightness < 1)
-                    g_rgbw_dev->acts.bstate = 0;
+                rgbw_dev->props[COLOR_BLUE].brightness--;
+                if (rgbw_dev->props[COLOR_BLUE].brightness < 1)
+                    rgbw_dev->acts.bstate = 0;
                 break;
             default:
-                g_rgbw_dev->acts.bstate = 0;
-                g_rgbw_dev->props[COLOR_RED].brightness = g_rgbw_dev->props[COLOR_RED].max_brightness;
-                g_rgbw_dev->props[COLOR_GREEN].brightness = 0;
-                g_rgbw_dev->props[COLOR_BLUE].brightness = 0;
-                g_rgbw_dev->props[COLOR_WHITE].brightness = 0;
+                rgbw_dev->acts.bstate = 0;
+                rgbw_dev->props[COLOR_RED].brightness = rgbw_dev->props[COLOR_RED].max_brightness;
+                rgbw_dev->props[COLOR_GREEN].brightness = 0;
+                rgbw_dev->props[COLOR_BLUE].brightness = 0;
+                rgbw_dev->props[COLOR_WHITE].brightness = 0;
                 break;
         };
       
-        rgbw_color_update(g_rgbw_dev);
-   
-        hrtimer_forward(timer, ktime_get(), ns_to_ktime(PULSE_VALUE_PER_NS));
-        
-        return HRTIMER_RESTART;
+        rgbw_color_update(rgbw_dev); 
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_RAINBOW], jiffies + msecs_to_jiffies(PULSE_VALUE_PER_MS));
     }
-    else 
-        return HRTIMER_NORESTART;
 }
 
 /* The heartbeat timer callback is called only when the heartbeat function
@@ -266,34 +305,36 @@ static enum hrtimer_restart rgbw_rb_hrtimer_callback(struct hrtimer *timer)
  * to starting so that we can restore it once the heartbeat function is
  * stopped. 
  */
- 
-static enum hrtimer_restart rgbw_hb_hrtimer_callback(struct hrtimer *timer)
+static void rgbw_hb_timer_callback(unsigned long data)
 {
-    int bstate;
+	struct rgbw_device *rgbw_dev = (struct rgbw_device *) data;
+    int bstate = rgbw_dev->acts.state;
     int cntr;
     
-    bstate = g_rgbw_dev->acts.state;
+    if (unlikely(reboot_stop)) {
+		for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
+            rgbw_dev->props[cntr].brightness = 0;
+        } 
+		rgbw_color_update(rgbw_dev);
+		return;
+	}
     
-    if (bstate & RGBW_HB_ON) {               
-        bstate = g_rgbw_dev->acts.bstate;
+    if (bstate & RGBW_HB_ON) {              
+        bstate = rgbw_dev->acts.bstate;
         
         for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
-            g_rgbw_dev->props[cntr].brightness = (bstate % 2) ? 0 : g_rgbw_dev->acts.rgbw_values[cntr];          
+            rgbw_dev->props[cntr].brightness = (bstate % 2) ? 0 : rgbw_dev->acts.rgbw_values[cntr];          
         }
         
-        g_rgbw_dev->acts.bstate = (bstate < 3) ? g_rgbw_dev->acts.bstate+1 : 0;
+        rgbw_dev->acts.bstate = (bstate < 3) ? rgbw_dev->acts.bstate+1 : 0;
         
-        rgbw_color_update(g_rgbw_dev);
+        rgbw_color_update(rgbw_dev);
         
         if (bstate < 3)
-            hrtimer_forward(timer, ktime_get(), ns_to_ktime(100000000));
-        else 
-            hrtimer_forward(timer, ktime_get(), ns_to_ktime(700000000));  
-        
-        return HRTIMER_RESTART;
+			mod_timer(&rgbw_dev->rgbw_timer[TIMER_HEARTBEAT], jiffies + msecs_to_jiffies(100));
+        else
+			mod_timer(&rgbw_dev->rgbw_timer[TIMER_HEARTBEAT], jiffies + msecs_to_jiffies(700));
     }
-    else 
-        return HRTIMER_NORESTART;
 }
 
 /* The blink timer callback is called only when the blink function
@@ -301,31 +342,29 @@ static enum hrtimer_restart rgbw_hb_hrtimer_callback(struct hrtimer *timer)
  * to starting so that we can restore it once the blink function is
  * stopped. 
  */
- 
-static enum hrtimer_restart rgbw_blink_hrtimer_callback(struct hrtimer *timer)
+static void rgbw_blink_timer_callback(unsigned long data)
 {
-    int bstate;
+	struct rgbw_device *rgbw_dev = (struct rgbw_device *) data;
+    int bstate = rgbw_dev->acts.state;
     int cntr;
     
-    bstate = g_rgbw_dev->acts.state;
+    if (unlikely(reboot_stop)) {
+		for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
+            rgbw_dev->props[cntr].brightness = 0;
+        } 
+		rgbw_color_update(rgbw_dev);
+		return;
+	}
     
     if (bstate & RGBW_BLINK_ON) {               
-        bstate = g_rgbw_dev->acts.bstate;                      
-        
+        bstate = rgbw_dev->acts.bstate;                             
         for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
-            g_rgbw_dev->props[cntr].brightness = (!bstate) ? 0 : g_rgbw_dev->acts.rgbw_values[cntr];   
-        }
-        
-        g_rgbw_dev->acts.bstate = (!bstate) ? 1 : 0;
-        
-        rgbw_color_update(g_rgbw_dev);
-
-        hrtimer_forward(timer, ktime_get(), ns_to_ktime(BLINK_STATE_PER_NS));
-        
-        return HRTIMER_RESTART;
+            rgbw_dev->props[cntr].brightness = (!bstate) ? 0 : rgbw_dev->acts.rgbw_values[cntr];
+        }       
+        rgbw_dev->acts.bstate = (!bstate) ? 1 : 0;       
+        rgbw_color_update(rgbw_dev);
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_BLINK], jiffies + msecs_to_jiffies(BLINK_STATE_PER_MS));
     }
-    else
-        return HRTIMER_NORESTART;
 }
 
 /* The pulse timer callback is called only when the pulse function
@@ -333,31 +372,28 @@ static enum hrtimer_restart rgbw_blink_hrtimer_callback(struct hrtimer *timer)
  * to starting so that we can restore it once the pulse function is
  * stopped. 
  */
- 
-static enum hrtimer_restart rgbw_pulse_hrtimer_callback(struct hrtimer *timer)
+static void rgbw_pulse_timer_callback(unsigned long data)
 {
+	struct rgbw_device *rgbw_dev = (struct rgbw_device *) data;
     int pulse_val_size = ARRAY_SIZE(pulse_val_table);
-    int bstate; 
-    int pcolor;
+    int bstate = rgbw_dev->acts.state; 
+    int pcolor = rgbw_dev->acts.pcolor; 
     
-    bstate = g_rgbw_dev->acts.state;
-    
-    if (bstate & RGBW_PULSE_ON) { 
-        pcolor = g_rgbw_dev->acts.pcolor;           
+    if (unlikely(reboot_stop)) {
+		rgbw_dev->props[pcolor].brightness = 0;
+		pulse_color_update(rgbw_dev, rgbw_dev->acts.pcolor);
+		return;
+	}
+	   
+    if (bstate & RGBW_PULSE_ON) {         
+        if (rgbw_dev->props[pcolor].cntr >= pulse_val_size)
+            rgbw_dev->props[pcolor].cntr = 0;        
+        rgbw_dev->props[pcolor].brightness = pulse_val_table[rgbw_dev->props[pcolor].cntr];
+        rgbw_dev->props[pcolor].cntr++;
         
-        if (g_rgbw_dev->props[pcolor].cntr >= pulse_val_size)
-            g_rgbw_dev->props[pcolor].cntr = 0;        
-        g_rgbw_dev->props[pcolor].brightness = pulse_val_table[g_rgbw_dev->props[pcolor].cntr];
-        g_rgbw_dev->props[pcolor].cntr++;
-        
-        pulse_color_update(g_rgbw_dev, pcolor);
-
-        hrtimer_forward(timer, ktime_get(), ns_to_ktime(PULSE_VALUE_PER_NS));
-        
-        return HRTIMER_RESTART;
-    }
-    else
-        return HRTIMER_NORESTART;
+        pulse_color_update(rgbw_dev, pcolor);
+        mod_timer(&rgbw_dev->rgbw_timer[TIMER_PULSE], jiffies + msecs_to_jiffies(PULSE_VALUE_PER_MS));
+	}        
 }
 
 /* The gpio timer callback is called only when needed (which is to
@@ -367,14 +403,20 @@ static enum hrtimer_restart rgbw_pulse_hrtimer_callback(struct hrtimer *timer)
  
 static enum hrtimer_restart rgbw_gpio_hrtimer_callback(struct hrtimer *timer)
 {
-    int cntr;
-    enum hrtimer_restart ret;
+    struct pwm_rgbw_data *pb = rgbw_get_data(g_rgbw_dev);   
+    enum hrtimer_restart ret = HRTIMER_NORESTART;
+    ktime_t hrtimer_next_tick  = ktime_set(0,0);
     u64 next_toggle; // a nanosecond value
-    struct pwm_rgbw_data *pb;
-    ktime_t hrtimer_next_tick;
+    int cntr;
     
-    pb = rgbw_get_data(g_rgbw_dev);
-    hrtimer_next_tick = ktime_set(0,0);
+    if (unlikely(reboot_stop)) {
+		for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
+			if (pb->types[cntr] == RGBW_GPIO) { 
+				__gpio_set_value(pb->soft_pwm[cntr].gpio, 0);
+			}
+		}
+		return ret;
+	}
     
     for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
         if (pb->types[cntr] == RGBW_GPIO) {            
@@ -387,13 +429,7 @@ static enum hrtimer_restart rgbw_gpio_hrtimer_callback(struct hrtimer *timer)
                 }
                 else {
                     pb->soft_pwm[cntr].value = 1 - pb->soft_pwm[cntr].value;
-                    
-                    /* next_toggle is the pulse width in nsec at this point */
-                    next_toggle = g_rgbw_dev->props[cntr].brightness * pb->lth_brightness;
-                    
-                    /* gpio is HIGH then we switch again at pulse width otherwise 
-                     * we will toggle again at the beginning of the next period */
-                    next_toggle = (pb->soft_pwm[cntr].value) ? next_toggle : (pb->period - next_toggle); 
+                    next_toggle = (pb->soft_pwm[cntr].value) ? (g_rgbw_dev->props[cntr].brightness * pb->lth_brightness) : (pb->period - (g_rgbw_dev->props[cntr].brightness * pb->lth_brightness)); 
                     hrtimer_next_tick = ns_to_ktime(next_toggle);
                 }
                 __gpio_set_value(pb->soft_pwm[cntr].gpio, pb->soft_pwm[cntr].value); 
@@ -406,12 +442,8 @@ static enum hrtimer_restart rgbw_gpio_hrtimer_callback(struct hrtimer *timer)
         hrtimer_forward(timer, ktime_get(), hrtimer_next_tick);
         ret = HRTIMER_RESTART;
     }
-    else {
-        dev_dbg(&g_rgbw_dev->dev, "Stopping the GPIO timer.\n");
-        ret = HRTIMER_NORESTART;
-    }
        
-    return ret;   
+    return ret;
 }
 
 static int rgbw_dt_validation(struct platform_device *pdev)
@@ -539,6 +571,14 @@ static struct of_device_id rgbw_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, rgbw_of_match);
 
+typedef void (*timer_callbackfn)( unsigned long );
+timer_callbackfn callbackfn_list[MAX_RGBWTIMER + 1] = {
+	rgbw_pulse_timer_callback,
+	rgbw_blink_timer_callback,
+	rgbw_hb_timer_callback,
+	rgbw_rb_timer_callback,
+	NULL,
+};
 
 /* This function is called by the system when a DT entry
  * has a platform_device with matching compatible string.
@@ -731,28 +771,12 @@ static int rgbw_dt_probe(struct platform_device *pdev)
         
     }
 
-    for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
-        if (pb->types[cntr] == RGBW_PWM) {
-            /* 
-             * Set our period for the gpios based on the 
-             * first identified PWM period. We will then set the 
-             * period of the other PWMs to match this period
-             * in the event they were configured wrong.
-             */
-            pb->period = pwm_get_period(pb->pwm[cntr]);
-            break;
-        }
-        else {
-            /* 
-             * If there are no configured PWMs then we will
-             * set our period arbitrarily to be 7.65ms
-             * which is a frequency of ~130Hz
-             */
-            pb->period = 7650000;
-        }
-    }
-    
-    pb->lth_brightness = (pb->period / max);
+    /* 
+	 * Set our period arbitrarily to be 10ms
+	 * which is a frequency of 100Hz
+	 */
+	pb->period = 10000000;
+	pb->lth_brightness = (pb->period / max);
     
     acts.pcolor = INVALID_COLOR;
     acts.bstate = INVALID_COLOR;
@@ -772,10 +796,6 @@ static int rgbw_dt_probe(struct platform_device *pdev)
         rgbw_dev->props[cntr].cntr = 0;
     }
     
-    for (cntr = HRTIMER_PULSE; cntr < MAX_HRTIMER; cntr++) {
-        hrtimer_init(&rgbw_dev->rgbw_hrtimer[cntr], CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-    }
-    
     for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
         if (pb->types[cntr] == RGBW_GPIO) {
             hrtimer_init(&pb->soft_pwm[cntr].pwm_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -783,16 +803,24 @@ static int rgbw_dt_probe(struct platform_device *pdev)
         }
     }
     
-    rgbw_dev->rgbw_hrtimer[HRTIMER_PULSE].function = &rgbw_pulse_hrtimer_callback;
-    rgbw_dev->rgbw_hrtimer[HRTIMER_BLINK].function = &rgbw_blink_hrtimer_callback;
-    rgbw_dev->rgbw_hrtimer[HRTIMER_HEARTBEAT].function = &rgbw_hb_hrtimer_callback;
-    rgbw_dev->rgbw_hrtimer[HRTIMER_RAINBOW].function = &rgbw_rb_hrtimer_callback;
+    setup_timer(&rgbw_dev->rgbw_timer[TIMER_PULSE], callbackfn_list[TIMER_PULSE], (unsigned long) rgbw_dev);
+    set_timer_slack(&rgbw_dev->rgbw_timer[TIMER_PULSE], 0);
+    setup_timer(&rgbw_dev->rgbw_timer[TIMER_BLINK], callbackfn_list[TIMER_BLINK], (unsigned long) rgbw_dev);
+    set_timer_slack(&rgbw_dev->rgbw_timer[TIMER_BLINK], 0);
+    setup_timer(&rgbw_dev->rgbw_timer[TIMER_HEARTBEAT], callbackfn_list[TIMER_HEARTBEAT], (unsigned long) rgbw_dev);
+    set_timer_slack(&rgbw_dev->rgbw_timer[TIMER_HEARTBEAT], 0);
+    setup_timer(&rgbw_dev->rgbw_timer[TIMER_RAINBOW], callbackfn_list[TIMER_RAINBOW], (unsigned long) rgbw_dev);
+    set_timer_slack(&rgbw_dev->rgbw_timer[TIMER_RAINBOW], 0);
     
     rgbw_update_status(rgbw_dev);
 
     platform_set_drvdata(pdev, rgbw_dev);
     g_rgbw_dev = rgbw_dev;
-        
+    
+    atomic_notifier_chain_register(&panic_notifier_list, &rgbw_panic_nb);
+    register_reboot_notifier(&rgbw_reboot_nb);
+
+	reboot_stop = false;
     return 0;
 
 err_alloc:
@@ -809,21 +837,23 @@ static int rgbw_color_remove(struct platform_device *pdev)
     
     rgbw_dev->acts.pcolor = INVALID_COLOR;
     rgbw_dev->acts.bstate = INVALID_COLOR;
-    for (cntr = HRTIMER_PULSE; cntr < MAX_HRTIMER; cntr++) {
-        dev_err(&pdev->dev, "cancelling our hrtimers\n");
-        hrtimer_cancel(&rgbw_dev->rgbw_hrtimer[cntr]);
+    dev_err(&pdev->dev, "cancelling our timers\n");
+    for (cntr = TIMER_PULSE; cntr < MAX_RGBWTIMER; cntr++) {
+		del_timer_sync(&rgbw_dev->rgbw_timer[cntr]);
     }
+    reboot_stop = true;
     rgbw_device_unregister(rgbw_dev);
     for (cntr = COLOR_RED; cntr < MAX_COLORS; cntr++) {
         if (pb->types[cntr] == RGBW_PWM) {
-            pwm_config(pb->pwm[cntr], 0, pb->period);
-            pwm_disable(pb->pwm[cntr]);
+			pwm_disable(pb->pwm[cntr]);
         }
         if (pb->types[cntr] == RGBW_GPIO) {
             __gpio_set_value(pb->soft_pwm[cntr].gpio, 0);
             gpio_free(pb->soft_pwm[cntr].gpio);
         }
     }
+    unregister_reboot_notifier(&rgbw_reboot_nb);
+	atomic_notifier_chain_unregister(&panic_notifier_list, &rgbw_panic_nb);
     if (pb->exit)
         pb->exit(&pdev->dev);
     return 0;
